@@ -1,6 +1,7 @@
-from src.client import HyperliquidClient
+from src.client import HyperliquidClient, ProtectionError
 from src.strategy.base import Signal
 from src.utils.logger import get_logger
+from src.utils.notifier import TelegramNotifier
 
 log = get_logger("exec")
 
@@ -11,8 +12,10 @@ class OrderExecutor:
     # Hyperliquid menolak order dengan notional < $10 per asset.
     MIN_NOTIONAL_USD = 10.0
 
-    def __init__(self, client: HyperliquidClient):
+    def __init__(self, client: HyperliquidClient, notifier: TelegramNotifier | None = None):
         self.client = client
+        # notifier default = no-op (mode silent)
+        self.notifier = notifier or TelegramNotifier()
 
     def execute(
         self,
@@ -40,6 +43,15 @@ class OrderExecutor:
             result = self.client.place_market_order(symbol, is_buy, size_in_asset, sl=sl, tp=tp)
             log.info("[%s] Order result: %s", symbol, result)
             return result
+        except ProtectionError as e:
+            # proteksi gagal & posisi SUDAH ditutup paksa oleh client -> alert
+            log.error("[%s] PROTEKSI GAGAL: %s (posisi sudah ditutup paksa)", symbol, e)
+            self.notifier.notify_force_close(
+                symbol,
+                f"{signal.value} {size_in_asset} {symbol} (~${size_usd:.2f})",
+                detail=str(e),
+            )
+            return None
         except Exception as e:
             log.error("[%s] Gagal eksekusi order: %s", symbol, e)
             return None

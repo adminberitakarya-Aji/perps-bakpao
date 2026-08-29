@@ -8,6 +8,7 @@ from src.strategy.base import MarketSnapshot, Signal, Strategy
 from src.risk.manager import RiskManager
 from src.execution.executor import OrderExecutor
 from src.utils.logger import get_logger
+from src.utils.notifier import TelegramNotifier
 
 log = get_logger("engine")
 
@@ -21,6 +22,7 @@ class TradingEngine:
         executor: OrderExecutor,
         symbols: list,
         interval: str = "1h",
+        notifier: TelegramNotifier | None = None,
     ):
         self.client = client
         self.strategy = strategy
@@ -28,6 +30,8 @@ class TradingEngine:
         self.executor = executor
         self.symbols = symbols
         self.interval = interval
+        # notifier default = no-op (mode silent) supaya test/wiring lama tidak pecah
+        self.notifier = notifier or TelegramNotifier()
         self.state_path = os.path.join("data", "live_positions.json")
         self.live_positions: dict = {}  # symbol -> {"side", "entry_price", "entry_atr", "sl", "tp"}
         self.daily_state_path = os.path.join("data", "daily_state.json")
@@ -111,6 +115,12 @@ class TradingEngine:
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
         if self.daily_state.get("date_utc") != today:
+            # PnL final "kemarin" = equity saat rollover vs baseline kemarin
+            yesterday_pnl_pct = None
+            old_baseline = float(self.daily_state.get("day_start_equity") or 0)
+            if old_baseline > 0:
+                yesterday_pnl_pct = (equity - old_baseline) / old_baseline
+
             self.daily_state = {
                 "date_utc": today,
                 "day_start_equity": equity,
@@ -118,6 +128,25 @@ class TradingEngine:
             }
             self._save_daily_state()
             log.info("tracker harian reset: date=%s baseline_equity=%.2f", today, equity)
+
+            # heartbeat = bukti bot hidup + ringkasan awal hari (kirim SEKALI
+            # per hari, terikat deteksi rollover yang persisted)
+            try:
+                positions = []
+                for sym, st in self.live_positions.items():
+                    pos = self.client.get_position(sym)
+                    size = abs(pos["szi"]) if pos else None
+                    positions.append((sym, st.get("side"), size, st.get("entry_price"), st.get("sl"), st.get("tp")))
+                self.notifier.notify_heartbeat(
+                    today,
+                    equity,
+                    yesterday_pnl_pct,
+                    positions,
+                    False,
+                    self.client.config.use_testnet,
+                )
+            except Exception as e:
+                log.warning("gagal kirim heartbeat: %s", e)
 
         day_start = float(self.daily_state.get("day_start_equity") or 0)
         if day_start <= 0:  # state korup -> pulihkan baseline
@@ -139,6 +168,12 @@ class TradingEngine:
                 "KILL SWITCH TERPICU: daily_pnl=%.2f%% <= -%.1f%% (entry baru diblokir sampai ganti hari UTC)",
                 daily_pnl_pct * 100,
                 self.risk_manager.limits.max_daily_loss_pct * 100,
+            )
+            self.notifier.notify_kill_switch(
+                daily_pnl_pct,
+                self.risk_manager.limits.max_daily_loss_pct,
+                equity,
+                day_start,
             )
 
     def run_once(self):
@@ -197,6 +232,19 @@ class TradingEngine:
                         "posisi %s dicatat: side=%s SL=%s TP=%s",
                         symbol, self.live_positions[symbol]["side"], sl, tp,
                     )
+                    size_asset = round(size_usd / snapshot.mid_price, 5)
+                    self.notifier.notify_entry(
+                        symbol=symbol,
+                        signal=result.signal.value,
+                        size=size_asset,
+                        size_usd=size_usd,
+                        price=snapshot.mid_price,
+                        sl=sl,
+                        tp=tp,
+                        confidence=result.confidence,
+                        equity=None if equity_usd == 1000.0 and self._get_equity_or_none() is None else equity_usd,
+                        reason=result.reason,
+                    )
 
     # ------------------------------------------------------------------
     # Manajemen posisi terbuka: trailing SL + cleanup orphan trigger
@@ -209,6 +257,13 @@ class TradingEngine:
         if pos is None:
             if state is not None:
                 log.info("[%s] posisi sudah tertutup -> hapus state & cancel trigger sisa", symbol)
+                self.notifier.notify_closed(
+                    symbol,
+                    state.get("side", "?"),
+                    self._get_equity_or_none(),
+                    self.risk_manager.daily_pnl_pct,
+                    bool(self.daily_state.get("kill_triggered")),
+                )
                 self.live_positions.pop(symbol, None)
                 self._save_state()
             try:
@@ -252,13 +307,15 @@ class TradingEngine:
                 return  # belum saatnya / pergeseran belum melewati step
 
             # cancel pair lama -> pasang pair baru (SL digeser, TP dipertahankan)
+            old_sl = state["sl"]
             try:
                 self.client.cancel_all_trigger_orders(symbol)
                 close_is_buy = state["side"] == "S"
                 self.client.place_tpsl_pair(symbol, close_is_buy, abs(pos["szi"]), new_sl, state.get("tp"))
-                log.info("[%s] TRAILING: SL %s -> %s (mid=%s)", symbol, state["sl"], new_sl, best_px)
+                log.info("[%s] TRAILING: SL %s -> %s (mid=%s)", symbol, old_sl, new_sl, best_px)
                 state["sl"] = new_sl
                 self._save_state()
+                self.notifier.notify_trailing(symbol, old_sl, new_sl, best_px)
             except Exception as e:
                 log.error("[%s] gagal geser SL: %s -> coba pulihkan pair lama", symbol, e)
                 try:
@@ -272,6 +329,7 @@ class TradingEngine:
                         self.client.market_close_position(symbol)
                     except Exception as e3:
                         log.critical("[%s] tutup paksa gagal (%s) -- PERIKSA MANUAL!", symbol, e3)
+                    self.notifier.notify_force_close_trailing(symbol, state.get("sl"), best_px)
 
     def _get_equity_usd(self) -> float:
         """Equity untuk SIZING; fallback 1000 kalau kosong/gagal.

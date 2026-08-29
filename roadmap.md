@@ -11,7 +11,7 @@
 | 1 | Equity asli dari `get_account_state()` | ✅ SELESAI — `TradingEngine._get_equity_usd()` baca `marginSummary.accountValue` |
 | 2 | Tracking daily PnL untuk kill switch | ✅ SELESAI — tracker `_update_daily_pnl()` per `run_once()` (basis UTC), persist `data/daily_state.json`, reset harian, fallback-safe |
 | 3 | Logging persisten | ✅ SELESAI — `src/utils/logger.py` (rotasi 5MB×5 + stdout); semua `print` jalur live diganti logger; `logs/` di gitignore |
-| 4 | Monitoring / alert (Telegram) | ❌ BELUM |
+| 4 | Monitoring / alert (Telegram) | ✅ SELESAI — `src/utils/notifier.py` (stdlib urllib, fire-and-forget, 8 event, silent/loud); wiring engine+executor+main; token via `.env` |
 | 5 | Funding rate historis otomatis | 🟡 SETENGAH — default `funding_rate_per_bar=0.000009` sudah diisi dari data terukur (Mar–Agu 2026); fetch otomatis belum, prioritas rendah |
 
 Fokus pengerjaan: **item 2, 3, 4** + rapikan dokumentasi. Item 5 (auto-fetch)
@@ -115,7 +115,13 @@ dibuat saat equity valid pertama kali (wallet kosong → tracker idle).
 
 ---
 
-## Fase 3 — Telegram Alert (Mata Kita di VPS)
+## Fase 3 — Telegram Alert ✅ SELESAI (2026-08-29)
+
+**Layout disetujui:** "Indonesia, detail" — lihat method event di
+`src/utils/notifier.py` untuk template final tiap event (🟢 entry /
+🔁 trailing / 🏁 closed / 🛑 kill switch / 🔴 force-close ×2 / ❌ error /
+💓 heartbeat harian). Info = silent (HP tidak berbunyi), kill/error =
+loud. Format HTML + `<code>` monospace, waktu UTC.
 
 **Masalah:** Bot headless di VPS tanpa cara tahu: entry apa yang terjadi,
 apakah SL/TP terpasang, apakah kill switch terpicu, apakah ada error.
@@ -157,6 +163,15 @@ apakah SL/TP terpasang, apakah kill switch terpicu, apakah ada error.
 3. Simulasi kirim gagal (token salah) → bot TIDAK crash, hanya log warning.
 4. Semua event di tabel terpicu minimal sekali di mock test.
 
+**Hasil validasi:** `tests/test_notifier.py` 4 test PASS — silent mode
+no-op; token palsu ke API Telegram NYATA (HTTP 404) tertelan jadi warning
+tanpa crash; 8 event terpicu dengan aturan silent/loud benar + format
+monospace utuh; wiring engine (entry/heartbeat/kill/closed) terpicu lewat
+`run_once()` mock. Regresi 3 suite lain hijau. Dry-run testnet: silent
+mode ter-log, jalur `ProtectionError` (force-close proteksi) terpicu
+tanpa crash. Uji kirim NYATA tinggal isi `TELEGRAM_BOT_TOKEN` +
+`TELEGRAM_CHAT_ID` lalu `python -m src.utils.notifier`.
+
 ---
 
 ## Fase 4 — Rapikan README & .env.example
@@ -184,7 +199,7 @@ apakah SL/TP terpasang, apakah kill switch terpicu, apakah ada error.
 
 - [x] Fase 1: log file hidup, jalur live tanpa print (2026-08-29)
 - [x] Fase 2: kill switch teruji (trigger + reset harian + persist) (2026-08-29)
-- [ ] Fase 3: alert Telegram teruji (sukses, silent, gagal-kirim aman)
+- [x] Fase 3: alert Telegram teruji (sukses, silent, gagal-kirim aman) (2026-08-29)
 - [ ] Fase 4: README & .env.example akurat
 - [ ] Semua test suite + mock engine test hijau
 - [ ] Dry-run testnet `run_once()` bersih tanpa exception

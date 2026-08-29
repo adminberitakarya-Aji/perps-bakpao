@@ -16,6 +16,14 @@ from src.utils.logger import get_logger
 log = get_logger("client")
 
 
+class ProtectionError(RuntimeError):
+    """Entry terisi tapi SL/TP gagal dipasang -> posisi SUDAH ditutup paksa.
+
+    Dilempar ke executor supaya alert force-close terkirim (jalur engine
+    sendiri tidak tahu proteksi gagal).
+    """
+
+
 class HyperliquidClient:
     def __init__(self, config: Config):
         self.config = config
@@ -72,7 +80,7 @@ class HyperliquidClient:
 
         pos = self.get_position_retry(symbol)
         if pos is None:
-            raise RuntimeError(
+            raise ProtectionError(
                 f"posisi {symbol} tidak terdeteksi setelah entry -- SL/TP gagal dipasang"
             )
 

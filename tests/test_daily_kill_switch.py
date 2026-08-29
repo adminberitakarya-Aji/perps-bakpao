@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pandas as pd
+from types import SimpleNamespace
 
 import src.engine as engine_mod
 from src.engine import TradingEngine
@@ -47,6 +48,7 @@ class StubStrategy(Strategy):
 class MockClient:
     def __init__(self, equity: float):
         self.equity = equity  # 0 -> wallet kosong (fallback)
+        self.config = SimpleNamespace(use_testnet=True)  # dipakai heartbeat engine
 
     def get_account_state(self):
         return {"marginSummary": {"accountValue": self.equity}}

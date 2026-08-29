@@ -18,6 +18,9 @@ class Config:
     # Alamat wallet utama (yang menyimpan dana), dipakai untuk query state.
     account_address: str
     use_testnet: bool = True
+    # Alert Telegram (opsional -- kosongkan keduanya = silent mode)
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
 
     @property
     def api_url(self) -> str:
@@ -43,4 +46,6 @@ class Config:
             private_key=private_key,
             account_address=account_address,
             use_testnet=use_testnet,
+            telegram_bot_token=(os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip(),
+            telegram_chat_id=(os.environ.get("TELEGRAM_CHAT_ID") or "").strip(),
         )
