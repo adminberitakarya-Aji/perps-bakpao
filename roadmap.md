@@ -174,7 +174,7 @@ tanpa crash. Uji kirim NYATA tinggal isi `TELEGRAM_BOT_TOKEN` +
 
 ---
 
-## Fase 4 — Rapikan README & .env.example
+## Fase 4 — Rapikan README & .env.example ✅ SELESAI (2026-08-29)
 
 **README.md:**
 - Hapus daftar "Belum diimplementasi (TODO)" yang sudah tidak akurat;
@@ -193,6 +193,14 @@ tanpa crash. Uji kirim NYATA tinggal isi `TELEGRAM_BOT_TOKEN` +
 **Kriteria lolos:** README akurat terhadap kode (tidak ada klaim basi),
 `.env.example` sinkron dengan `src/config.py`.
 
+**Hasil:** README di-rewrite penuh — judul & deskripsi sesuai kondisi nyata,
+peringatan hasil riset (belum ada edge setelah biaya) di bagian atas, tabel
+status komponen, struktur direktori lengkap (backtest/utils/tests/data/logs),
+bagian Testing (4 suite), Monitoring & Alert Telegram (setup + tabel event),
+dan Menjalankan di VPS (systemd/NSSM minimal). Daftar "Belum diimplementasi
+(TODO)" basi dihapus, digantikan link ke roadmap. `.env.example` sudah
+sinkron dengan `src/config.py` (5 variabel, dengan panduan setup Telegram).
+
 ---
 
 ## Definition of Done — "VPS-Ready"
@@ -200,9 +208,9 @@ tanpa crash. Uji kirim NYATA tinggal isi `TELEGRAM_BOT_TOKEN` +
 - [x] Fase 1: log file hidup, jalur live tanpa print (2026-08-29)
 - [x] Fase 2: kill switch teruji (trigger + reset harian + persist) (2026-08-29)
 - [x] Fase 3: alert Telegram teruji (sukses, silent, gagal-kirim aman) (2026-08-29)
-- [ ] Fase 4: README & .env.example akurat
-- [ ] Semua test suite + mock engine test hijau
-- [ ] Dry-run testnet `run_once()` bersih tanpa exception
+- [x] Fase 4: README & .env.example akurat (2026-08-29)
+- [x] Semua test suite + mock engine test hijau (2026-08-29)
+- [x] Dry-run testnet `run_once()` bersih tanpa exception (2026-08-29)
 
 ## Luar Scope (dipegang untuk nanti)
 
