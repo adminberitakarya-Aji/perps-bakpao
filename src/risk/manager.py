@@ -42,7 +42,7 @@ class RiskLimits:
 class RiskManager:
     def __init__(self, limits: RiskLimits):
         self.limits = limits
-        self.daily_pnl_pct = 0.0  # TODO: update ini dari account state tiap loop
+        self.daily_pnl_pct = 0.0  # di-update TradingEngine._update_daily_pnl() tiap run_once (basis hari UTC)
 
     def check_and_size(
         self,

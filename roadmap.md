@@ -9,7 +9,7 @@
 | # | Item TODO lama | Status aktual |
 |---|---|---|
 | 1 | Equity asli dari `get_account_state()` | ✅ SELESAI — `TradingEngine._get_equity_usd()` baca `marginSummary.accountValue` |
-| 2 | Tracking daily PnL untuk kill switch | ❌ BELUM — `RiskManager.daily_pnl_pct` di-init `0.0` dan tidak pernah di-update → kill switch -5% adalah kode mati |
+| 2 | Tracking daily PnL untuk kill switch | ✅ SELESAI — tracker `_update_daily_pnl()` per `run_once()` (basis UTC), persist `data/daily_state.json`, reset harian, fallback-safe |
 | 3 | Logging persisten | ✅ SELESAI — `src/utils/logger.py` (rotasi 5MB×5 + stdout); semua `print` jalur live diganti logger; `logs/` di gitignore |
 | 4 | Monitoring / alert (Telegram) | ❌ BELUM |
 | 5 | Funding rate historis otomatis | 🟡 SETENGAH — default `funding_rate_per_bar=0.000009` sudah diisi dari data terukur (Mar–Agu 2026); fetch otomatis belum, prioritas rendah |
@@ -64,7 +64,7 @@ dan smoke-test blok `__main__` di `src/client.py`.
 
 ---
 
-## Fase 2 — Kill Switch Daily PnL (Rem Darurat)
+## Fase 2 — Kill Switch Daily PnL (Rem Darurat) ✅ SELESAI (2026-08-29)
 
 **Masalah:** `RiskManager.daily_pnl_pct` tidak pernah di-update
 (lihat komentar TODO di `src/risk/manager.py`). Kill switch -5%/hari ada di
@@ -105,6 +105,13 @@ fitur keselamatan yang mati diam-diam lebih buruk daripada tidak ada.
 2. Unit test: pergantian hari UTC → tracker reset, kill switch terbuka lagi.
 3. Equity fallback → tracker tidak berubah (tidak ada PnL palsu).
 4. Restart proses di tengah hari → state dimuat, kill switch konsisten.
+
+**Hasil validasi:** suite baru `tests/test_daily_kill_switch.py` 5 test PASS
+(unit blokir, trigger -6% + blokir entry via `run_once()`, restart konsisten,
+rollover UTC reset baseline, fallback wallet-kosong aman + recovery -7%);
+regresi backtest & strategy suite hijau; dry-run testnet menunjukkan jalur
+fallback aktif tanpa PnL palsu. CATATAN: baseline `daily_state.json` baru
+dibuat saat equity valid pertama kali (wallet kosong → tracker idle).
 
 ---
 
@@ -176,7 +183,7 @@ apakah SL/TP terpasang, apakah kill switch terpicu, apakah ada error.
 ## Definition of Done — "VPS-Ready"
 
 - [x] Fase 1: log file hidup, jalur live tanpa print (2026-08-29)
-- [ ] Fase 2: kill switch teruji (trigger + reset harian + persist)
+- [x] Fase 2: kill switch teruji (trigger + reset harian + persist) (2026-08-29)
 - [ ] Fase 3: alert Telegram teruji (sukses, silent, gagal-kirim aman)
 - [ ] Fase 4: README & .env.example akurat
 - [ ] Semua test suite + mock engine test hijau

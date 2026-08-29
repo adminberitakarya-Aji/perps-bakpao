@@ -1,5 +1,6 @@
 import json
 import os
+from datetime import datetime, timezone
 
 from src.client import HyperliquidClient
 from src.data.market_data import fetch_snapshot
@@ -29,7 +30,10 @@ class TradingEngine:
         self.interval = interval
         self.state_path = os.path.join("data", "live_positions.json")
         self.live_positions: dict = {}  # symbol -> {"side", "entry_price", "entry_atr", "sl", "tp"}
+        self.daily_state_path = os.path.join("data", "daily_state.json")
+        self.daily_state: dict = {}  # {"date_utc", "day_start_equity", "kill_triggered"}
         self._load_state()
+        self._load_daily_state()
 
     # ------------------------------------------------------------------
     # Persistensi state posisi live (trailing tetap benar setelah restart)
@@ -53,7 +57,94 @@ class TradingEngine:
         except Exception as e:
             log.error("gagal menyimpan state: %s", e)
 
+    # ------------------------------------------------------------------
+    # Tracker PnL harian (kill switch risk manager) -- persist + reset UTC
+    # ------------------------------------------------------------------
+    def _load_daily_state(self):
+        try:
+            if os.path.exists(self.daily_state_path):
+                with open(self.daily_state_path) as f:
+                    self.daily_state = json.load(f)
+        except Exception as e:
+            log.error("gagal memuat daily state: %s", e)
+            self.daily_state = {}
+
+    def _save_daily_state(self):
+        try:
+            os.makedirs(os.path.dirname(self.daily_state_path), exist_ok=True)
+            with open(self.daily_state_path, "w") as f:
+                json.dump(self.daily_state, f, indent=1)
+        except Exception as e:
+            log.error("gagal menyimpan daily state: %s", e)
+
+    def _get_equity_or_none(self) -> float | None:
+        """Equity asli (marginSummary.accountValue); None kalau kosong/gagal.
+
+        Dipakai tracker harian: nilai fallback TIDAK boleh dipakai di sini
+        supaya PnL harian tidak pernah dihitung dari angka palsu.
+        """
+        try:
+            state = self.client.get_account_state()
+            account_value = float(state.get("marginSummary", {}).get("accountValue", 0) or 0)
+            if account_value <= 0:
+                return None
+            return account_value
+        except Exception as e:
+            log.warning("gagal ambil account state: %s", e)
+            return None
+
+    def _update_daily_pnl(self):
+        """Hitung PnL harian (basis hari UTC) -> suntikkan ke risk_manager.
+
+        - Ganti hari UTC -> day_start_equity di-reset (baseline baru hari itu).
+        - Equity tidak tersedia (wallet kosong / API gagal) -> tracker TIDAK
+          di-update (nilai terakhir dipertahankan, supaya kill switch tidak
+          dibuka/ditutup oleh data kosong -> tidak ada PnL palsu).
+        - Kill switch memblokir ENTRY baru saja; posisi terbuka tetap
+          dikelola penuh (SL/TP/trailing tetap jalan).
+        """
+        equity = self._get_equity_or_none()
+        if equity is None:
+            log.info("equity tidak tersedia -> tracker PnL harian tidak di-update")
+            return
+
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+        if self.daily_state.get("date_utc") != today:
+            self.daily_state = {
+                "date_utc": today,
+                "day_start_equity": equity,
+                "kill_triggered": False,
+            }
+            self._save_daily_state()
+            log.info("tracker harian reset: date=%s baseline_equity=%.2f", today, equity)
+
+        day_start = float(self.daily_state.get("day_start_equity") or 0)
+        if day_start <= 0:  # state korup -> pulihkan baseline
+            self.daily_state["day_start_equity"] = equity
+            self._save_daily_state()
+            day_start = equity
+
+        daily_pnl_pct = (equity - day_start) / day_start
+        self.risk_manager.daily_pnl_pct = daily_pnl_pct
+        log.info("equity=%.2f baseline=%.2f daily_pnl=%.2f%%", equity, day_start, daily_pnl_pct * 100)
+
+        if (
+            daily_pnl_pct <= -self.risk_manager.limits.max_daily_loss_pct
+            and not self.daily_state.get("kill_triggered")
+        ):
+            self.daily_state["kill_triggered"] = True
+            self._save_daily_state()
+            log.warning(
+                "KILL SWITCH TERPICU: daily_pnl=%.2f%% <= -%.1f%% (entry baru diblokir sampai ganti hari UTC)",
+                daily_pnl_pct * 100,
+                self.risk_manager.limits.max_daily_loss_pct * 100,
+            )
+
     def run_once(self):
+        # PnL harian (kill switch) di-update SEKALI per run, bukan per symbol
+        self._update_daily_pnl()
+
         for symbol in self.symbols:
             # --- A. Kelola posisi terbuka dulu (trailing + cleanup) ---
             self._manage_open_positions(symbol)
@@ -183,17 +274,16 @@ class TradingEngine:
                         log.critical("[%s] tutup paksa gagal (%s) -- PERIKSA MANUAL!", symbol, e3)
 
     def _get_equity_usd(self) -> float:
-        """Equity (accountValue) dari marginSummary; fallback 1000 kalau kosong/gagal."""
-        try:
-            state = self.client.get_account_state()
-            account_value = float(state.get("marginSummary", {}).get("accountValue", 0) or 0)
-            if account_value <= 0:
-                log.warning("account state kosong (accountValue=0) -> fallback equity 1000")
-                return 1000.0
-            return account_value
-        except Exception as e:
-            log.warning("gagal ambil account state: %s -> fallback equity 1000", e)
+        """Equity untuk SIZING; fallback 1000 kalau kosong/gagal.
+
+        Tracker PnL harian memakai _get_equity_or_none() -- jangan pernah
+        hitung kill switch dari nilai fallback ini.
+        """
+        equity = self._get_equity_or_none()
+        if equity is None:
+            log.warning("equity tidak tersedia -> fallback 1000 untuk sizing")
             return 1000.0
+        return equity
 
     def _get_last_atr(self, snapshot: MarketSnapshot) -> float | None:
         """ATR terakhir dari candle closed (untuk SL/TP entry live)."""
