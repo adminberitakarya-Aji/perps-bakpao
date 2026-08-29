@@ -1,0 +1,4 @@
+hyperliquid-python-sdk
+eth-account
+python-dotenv
+ta
