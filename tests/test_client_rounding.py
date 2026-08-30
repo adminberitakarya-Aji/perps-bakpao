@@ -18,7 +18,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.client import round_px
+from src.client import round_px, round_sz
 
 
 def check(name: str, cond: bool, detail: str = ""):
@@ -69,3 +69,30 @@ check("harga sudah valid tidak berubah", round_px(60123.0, 5) == 60123.0)
 check("idempoten", round_px(round_px(61234.56, 5), 5) == round_px(61234.56, 5))
 
 print("\nSemua test round_px lulus.")
+
+# =====================================================================
+# round_sz: pembulatan UKURAN order (beda dari harga -- cuma dibatasi
+# jumlah desimal szDecimals, TANPA batas 5 significant figures)
+# =====================================================================
+
+# --- 1. BTC (szDecimals=5): entry size dari size_usd/price berdesimal panjang ---
+out = round_sz(0.123456789, sz_decimals=5)
+check("BTC-like 0.123456789 -> 0.12346", out == 0.12346, f"dapat {out}")
+
+# --- 2. Aset dengan szDecimals kecil (banyak altcoin) -- INI kasus yang
+#     sebelumnya gagal kalau hardcode 5 desimal seperti kode lama ---
+out = round_sz(123.456789, sz_decimals=1)
+check("szDecimals=1: 123.456789 -> 123.5", out == 123.5, f"dapat {out}")
+
+out = round_sz(123.456789, sz_decimals=0)
+check("szDecimals=0: 123.456789 -> 123.0", out == 123.0, f"dapat {out}")
+
+# --- 3. Tidak ada batas significant figures (beda dari round_px) ---
+out = round_sz(123456.789123, sz_decimals=3)
+check("szDecimals=3, nilai besar: 123456.789123 -> 123456.789", out == 123456.789, f"dapat {out}")
+
+# --- 4. Nilai yang sudah valid tidak berubah (idempoten) ---
+check("size sudah valid tidak berubah", round_sz(1.5, 2) == 1.5)
+check("idempoten", round_sz(round_sz(0.123456, 3), 3) == round_sz(0.123456, 3))
+
+print("Semua test round_sz lulus.")

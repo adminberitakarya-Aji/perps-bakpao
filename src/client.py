@@ -31,6 +31,18 @@ def round_px(px: float, sz_decimals: int, is_spot: bool = False) -> float:
     return round(float(f"{px:.5g}"), max_decimals)
 
 
+def round_sz(sz: float, sz_decimals: int) -> float:
+    """Bulatkan UKURAN order (bukan harga) ke szDecimals asli aset.
+
+    Beda dari round_px: ukuran tidak punya batas 5 significant figures,
+    cuma dibatasi jumlah desimal (szDecimals) -- tapi tetap WAJIB dibulatkan,
+    karena hardcode desimal (mis. selalu 5) salah untuk aset yang szDecimals
+    aslinya lebih kecil (banyak altcoin < 5) -> exchange menolak order,
+    persis pola kegagalan yang sama dengan harga yang tidak di-round_px.
+    """
+    return round(sz, sz_decimals)
+
+
 class OrderRejectedError(RuntimeError):
     """Exchange MENOLAK order (status err / per-order error).
 
@@ -167,6 +179,17 @@ class HyperliquidClient:
         asset = self.info.coin_to_asset[symbol]
         sz_decimals = self.info.asset_to_sz_decimals[asset]
         return round_px(px, sz_decimals, is_spot=asset >= 10_000)
+
+    def round_size(self, symbol: str, size: float) -> float:
+        """Bulatkan UKURAN order ke szDecimals asli aset (lihat round_sz()).
+
+        Dipakai executor.py sebelum kirim entry order -- size dari
+        size_usd/price bisa berdesimal berapapun, dan szDecimals BEDA per
+        aset (BTC/ETH kebetulan >= 5, tapi banyak aset lain lebih kecil ->
+        hardcode 5 desimal akan ditolak exchange untuk aset seperti itu)."""
+        asset = self.info.coin_to_asset[symbol]
+        sz_decimals = self.info.asset_to_sz_decimals[asset]
+        return round_sz(size, sz_decimals)
 
     def place_tpsl_pair(self, symbol: str, close_is_buy: bool, size: float, sl: float, tp: float | None = None):
         """Pasang SL (+TP) reduce-only, grouping normalTpsl: kalau salah satu

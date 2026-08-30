@@ -30,7 +30,7 @@ class OrderExecutor:
             log.warning("[%s] skip: notional $%.2f < minimum $%.0f", symbol, size_usd, self.MIN_NOTIONAL_USD)
             return None
 
-        size_in_asset = round(size_usd / price, 5)
+        size_in_asset = self.client.round_size(symbol, size_usd / price)
         if size_in_asset <= 0:
             log.warning("[%s] skip: size %s (asset) terlalu kecil", symbol, size_in_asset)
             return None
