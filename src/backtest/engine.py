@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 from src.strategy.base import Strategy, MarketSnapshot, Signal
 from src.risk.manager import RiskManager
 
+MAX_LOOKBACK = 560  # bar; >= 500 utk fitur regime ML + 50 vol + 10 buffer
+
 
 @dataclass
 class BacktestConfig:
@@ -90,6 +92,7 @@ def run_backtest(
     strategy: Strategy,
     risk_manager: RiskManager,
     config: BacktestConfig,
+    signal_filter=None,  # callable(window, signal) -> bool; None = tanpa filter
 ) -> BacktestResult:
     result = BacktestResult()
     equity = config.initial_equity
@@ -160,11 +163,18 @@ def run_backtest(
 
         # --- 2. Kalau tidak ada posisi terbuka, cek sinyal baru ---
         if open_position is None:
-            window = candles[: i + 1]
+            # Cap lookback window supaya recompute indikator tidak O(n) tiap bar
+            # (jadi O(n * MAX_LOOKBACK) alih-alih O(n^2) untuk seluruh backtest).
+            # 300 bar >> cukup untuk EMA-50/ADX-14/RSI-14 konvergen penuh --
+            # ini optimasi performa murni, tidak mengubah hasil sinyal.
+            window_start = max(0, i + 1 - MAX_LOOKBACK)
+            window = candles[window_start: i + 1]
             snapshot = MarketSnapshot(symbol="BACKTEST", mid_price=float(candle["c"]), candles=window)
             sig_result = strategy.generate_signal(snapshot)
 
-            if sig_result.signal != Signal.HOLD:
+            if sig_result.signal != Signal.HOLD and (
+                signal_filter is None or signal_filter(window, sig_result.signal)
+            ):
                 # sl_distance_pct supaya sizing risk-based (konsisten dgn live)
                 atr = _get_last_atr(strategy, window)
                 sl_distance_pct = None

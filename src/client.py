@@ -16,6 +16,21 @@ from src.utils.logger import get_logger
 log = get_logger("client")
 
 
+def round_px(px: float, sz_decimals: int, is_spot: bool = False) -> float:
+    """Bulatkan harga sesuai aturan presisi Hyperliquid: maks (6 - szDecimals)
+    desimal untuk perps (8 - szDecimals untuk spot) dan maks 5 significant
+    figures.
+
+    `exchange.bulk_orders` SDK TIDAK membulatkan harga otomatis (berbeda dari
+    market_open/market_close yang memakai _slippage_price), jadi trigger order
+    SL/TP yang dikirim manual WAJIB dibulatkan lewat fungsi ini -- kalau tidak
+    (mis. BTC 2 desimal = 7 sig-fig), exchange menolak order.
+    Pola rounding identik dengan hyperliquid.exchange._slippage_price.
+    """
+    max_decimals = (8 if is_spot else 6) - sz_decimals
+    return round(float(f"{px:.5g}"), max_decimals)
+
+
 class ProtectionError(RuntimeError):
     """Entry terisi tapi SL/TP gagal dipasang -> posisi SUDAH ditutup paksa.
 
@@ -106,12 +121,27 @@ class HyperliquidClient:
             time.sleep(delay_s)
         return self.get_position(symbol)
 
+    def _round_px(self, symbol: str, px: float) -> float:
+        """round_px() dengan szDecimals dari metadata exchange yang sudah
+        di-fetch Info di __init__ (butuh koneksi; fungsi murni round_px
+        dipisah supaya bisa dites tanpa jaringan)."""
+        asset = self.info.coin_to_asset[symbol]
+        sz_decimals = self.info.asset_to_sz_decimals[asset]
+        return round_px(px, sz_decimals, is_spot=asset >= 10_000)
+
     def place_tpsl_pair(self, symbol: str, close_is_buy: bool, size: float, sl: float, tp: float | None = None):
         """Pasang SL (+TP) reduce-only, grouping normalTpsl: kalau salah satu
         trigger terisi, satunya otomatis di-cancel oleh exchange.
 
+        Harga dibulatkan dulu ke presisi yang diterima exchange (round_px):
+        bulk_orders tidak membulatkan otomatis, harga mentah dengan desimal
+        berlebih akan DITOLAK -> ProtectionError -> force-close percuma.
+
         close_is_buy = arah order PENUTUP (posisi long -> close_is_buy=False).
         """
+        sl = self._round_px(symbol, sl)
+        if tp is not None and tp > 0:
+            tp = self._round_px(symbol, tp)
         orders = [
             {
                 "coin": symbol,
@@ -146,6 +176,16 @@ class HyperliquidClient:
         for order in open_orders:
             if order["coin"] == symbol:
                 self.exchange.cancel(symbol, order["oid"])
+
+    def get_funding_rate(self, coin: str) -> float | None:
+        """Funding rate terakhir (per jam) -- fitur ML & estimasi biaya."""
+        try:
+            rows = self.info.funding_history(
+                coin, int(time.time() * 1000) - 3_600_000, int(time.time() * 1000)
+            )
+            return float(rows[-1]["fundingRate"]) if rows else None
+        except Exception:
+            return None
 
     def get_position(self, symbol: str) -> dict | None:
         """Posisi terbuka satu simbol, atau None.

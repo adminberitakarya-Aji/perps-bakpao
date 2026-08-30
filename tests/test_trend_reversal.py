@@ -98,7 +98,7 @@ if __name__ == "__main__":
         strategy=TrendReversalStrategy(require_trend_alignment=True),
     )
 
-    print("\n=== Test 6 (rolling): Uptrend, require_trend_alignment=False -> SELL BOLEH muncul (perilaku EA asli) ===")
+    print("\n=== Test 6 (rolling): Uptrend, require_trend_alignment=False -> SELL BOLEH muncul (reversal murni) ===")
     run_rolling_test(
         "uptrend, unaligned",
         make_trending_candles(n=150),

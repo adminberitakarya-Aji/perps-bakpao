@@ -1,14 +1,20 @@
 """
-Port dari EA MQL5 XAUUSD (Fase 1: rule-based) ke pluggable Strategy interface.
+Strategi trend-reversal untuk perps kripto Hyperliquid (Fase 1: rule-based).
 
-Perubahan dari versi forex asli:
+Lapisan sinyal (Node 1 & 2: follow trend + reversal) menghasilkan kandidat
+entry; lapisan filter ML (Node 3, meta-labeling) menyaring kandidat
+berdasarkan probabilitas menang -- direncanakan diintegrasikan lewat field
+`confidence` + `min_confidence` di risk manager.
+
+Penyesuaian untuk perps kripto:
 - ADX_STRENGTH dinaikkan dari 15 -> 22 (15 terlalu longgar, banyak loloskan
   kondisi choppy sebagai "trending")
-- SL/TP tidak lagi berbasis "poin" (konsep khas forex/CFD), tapi ATR-based
-  dalam satuan harga aset langsung
-- TP tidak lagi TP_MONTHLY_LEVEL (target lebar, posisi bisa nyangkut lama
-  dan tergerus funding rate di perps) -> diganti ATR-based RR ratio
-- Martingale averaging TIDAK diikutkan (lihat catatan risiko sebelumnya)
+- SL/TP berbasis ATR dalam satuan harga aset langsung (bukan "poin" fixed),
+  supaya adaptif terhadap perubahan volatilitas kripto
+- TP pakai ATR-based RR ratio, bukan target level bulanan -- target lebar
+  membuat posisi nyangkut lama dan tergerus funding rate di perps
+- Martingale averaging TIDAK dipakai (berbahaya di perps: funding rate
+  saat averaging + risiko liquidation)
 """
 
 import pandas as pd
@@ -22,7 +28,7 @@ class TrendReversalStrategy(Strategy):
         self,
         ema_period: int = 50,
         adx_period: int = 14,
-        adx_strength: float = 22.0,   # dinaikkan dari 15 (default EA asli)
+        adx_strength: float = 22.0,   # baseline 15 terlalu longgar di kripto; uji 15 vs 22 di param sweep
         adx_use_di: bool = False,
         rsi_period: int = 14,
         rsi_overbought: float = 65.0,
@@ -35,7 +41,7 @@ class TrendReversalStrategy(Strategy):
         # True  = reversal BUY hanya jika close > EMA, reversal SELL hanya jika close < EMA
         #         ("buy the dip" / "sell the rally" -- searah trend besar)
         # False = reversal murni berdasar RSI ekstrem + pola candle, tanpa peduli
-        #         arah trend besar (perilaku asli EA MQL5)
+        #         arah trend besar (reversal murni)
     ):
         self.ema_period = ema_period
         self.adx_period = adx_period
@@ -122,6 +128,14 @@ class TrendReversalStrategy(Strategy):
         last = df.iloc[-1]
         prev = df.iloc[-2]
 
+        return self._decide_from_rows(last, prev)
+
+    def _decide_from_rows(self, last, prev) -> SignalResult:
+        """Logika keputusan murni dari dua baris indikator yang SUDAH dihitung
+        (last = bar dievaluasi, prev = bar sebelumnya). Dipisah dari
+        generate_signal() supaya bisa dipakai ulang oleh param_sweep.py tanpa
+        recompute indikator per kombinasi (satu-satunya sumber kebenaran logic,
+        tidak ada duplikasi -- param_sweep manggil method ini langsung)."""
         if pd.isna(last["ema"]) or pd.isna(last["adx"]) or pd.isna(last["rsi"]) or pd.isna(last["atr"]):
             return SignalResult(Signal.HOLD, 0.0, "indikator belum warm-up penuh")
 
@@ -155,7 +169,7 @@ class TrendReversalStrategy(Strategy):
                 )
                 # kalau require_trend_alignment aktif, reversal BUY cuma boleh
                 # searah trend besar (buy the dip); kalau tidak, reversal murni
-                # boleh melawan trend (perilaku asli EA)
+                # boleh melawan trend (reversal murni)
                 trend_ok = trend_is_up if self.require_trend_alignment else True
                 if bullish_pattern and trend_ok:
                     reversal_buy = True
@@ -186,3 +200,4 @@ class TrendReversalStrategy(Strategy):
         if do_buy:
             return SignalResult(Signal.BUY, confidence, reason)
         return SignalResult(Signal.SELL, confidence, reason)
+    

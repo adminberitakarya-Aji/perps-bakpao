@@ -3,5 +3,5 @@ __pycache__/
 *.pyc
 .venv/
 logs/
-data/
+/data/
 .pytest_cache/

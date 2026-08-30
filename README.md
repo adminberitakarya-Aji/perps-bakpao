@@ -1,7 +1,8 @@
 # Hyperliquid Perps Trading Agent
 
-Bot trading perpetuals di Hyperliquid — port dari EA MQL5 XAUUSD ke Python,
-dengan strategi pluggable, risk manager, proteksi SL/TP exchange-native, dan
+Bot trading perpetuals kripto di Hyperliquid — strategi trend-reversal
+(EMA/ADX/RSI + pin bar/engulfing) dengan rencana filter ML meta-labeling,
+strategi pluggable, risk manager, proteksi SL/TP exchange-native, dan
 infrastruktur live yang siap VPS: logging persisten, kill switch harian, dan
 alert Telegram.
 
@@ -37,7 +38,7 @@ Rencana pengerjaan & detail desain: lihat [roadmap.md](roadmap.md).
 │   ├── strategy/
 │   │   ├── base.py            # interface Strategy + MarketSnapshot/SignalResult
 │   │   ├── sma_crossover.py   # contoh strategi sederhana
-│   │   └── trend_reversal.py  # port EA XAUUSD (EMA/ADX/RSI + pin bar/engulfing)
+│   │   └── trend_reversal.py  # strategi perps kripto (EMA/ADX/RSI + pin bar/engulfing)
 │   ├── risk/manager.py        # sizing risk-based, kill switch, SL/TP & trailing ATR
 │   ├── execution/executor.py  # kirim order final (min notional $10, alert proteksi gagal)
 │   ├── backtest/              # fetch historis + engine backtest (fee + funding)

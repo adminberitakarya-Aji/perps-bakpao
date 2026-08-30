@@ -2,3 +2,6 @@ hyperliquid-python-sdk
 eth-account
 python-dotenv
 ta
+pandas
+numpy>=2.1
+onnxruntime>=1.23

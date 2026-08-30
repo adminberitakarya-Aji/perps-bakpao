@@ -23,6 +23,7 @@ class TradingEngine:
         symbols: list,
         interval: str = "1h",
         notifier: TelegramNotifier | None = None,
+        ml_filter=None,  # MLSignalFilter | None; None = tanpa filter ML
     ):
         self.client = client
         self.strategy = strategy
@@ -30,6 +31,7 @@ class TradingEngine:
         self.executor = executor
         self.symbols = symbols
         self.interval = interval
+        self.ml_filter = ml_filter
         # notifier default = no-op (mode silent) supaya test/wiring lama tidak pecah
         self.notifier = notifier or TelegramNotifier()
         self.state_path = os.path.join("data", "live_positions.json")
@@ -187,11 +189,12 @@ class TradingEngine:
             # fetch secukupnya sesuai kebutuhan strategi (bug lama: fetch
             # 50 bar padahal strategi butuh 52 -> selalu HOLD di live)
             need = self.strategy.required_bars()
-            lookback = max(need + 10, 60)
+            # fitur ML butuh window panjang: regime 500 bar + vol SMA100 + buffer
+            lookback = max(need + 10, 560)
             snapshot = fetch_snapshot(self.client, symbol, interval=self.interval, lookback_candles=lookback)
 
             # guard: jangan entry kalau masih ada posisi terbuka di simbol ini
-            # (EA asli pakai MaxOpenPositions=1; backtest juga single-position)
+            # (satu posisi per simbol; backtest juga single-position)
             pos = self.client.get_position(symbol)
             if pos is not None:
                 log.info("[%s] skip entry: masih ada posisi terbuka (%s, szi=%s)", symbol, pos["side"], pos["szi"])
@@ -203,6 +206,16 @@ class TradingEngine:
 
             if result.signal == Signal.HOLD:
                 continue
+
+            # --- Filter ML (fail-closed): p(win) >= threshold, else skip ---
+            if self.ml_filter is not None:
+                funding_rate = self.client.get_funding_rate(symbol)
+                window = snapshot.candles if hasattr(snapshot, "candles") else []
+                if not self.ml_filter.allow(window, result.signal,
+                                            self.strategy, funding_rate):
+                    log.info("[%s] sinyal %s DITOLAK filter ML (fail-closed)",
+                             symbol, result.signal.value)
+                    continue
 
             equity_usd = self._get_equity_usd()
             sl_distance_pct = self._get_sl_distance_pct(snapshot)

@@ -6,32 +6,63 @@ from src.strategy.trend_reversal import TrendReversalStrategy
 from src.risk.manager import RiskManager, RiskLimits
 from src.execution.executor import OrderExecutor
 from src.engine import TradingEngine
+# CATATAN: import MLSignalFilter sengaja LAZY (di dalam main(), hanya saat
+# ml_filter_enabled=true). Bot tanpa filter ML tidak butuh onnxruntime/numpy.
 from src.utils.logger import get_logger
 from src.utils.notifier import TelegramNotifier
 
-POLL_INTERVAL_SECONDS = 60 * 15  # 15 menit, sesuaikan dengan timeframe strategi
+POLL_INTERVAL_SECONDS = 60 * 60  # 1 jam = timeframe strategi produksi (BTC 1H)
 
 log = get_logger("main")
 
+
+# Status validasi venue (docs/go_live_validation.md): BELUM lolos go-live.
+# Integrasi ini sudah lengkap & teruji, tapi jangan aktifkan ml_filter
+# (ML_FILTER_ENABLED=true) sebelum model tervalidasi ulang di data HL.
 
 def main():
     config = Config.from_env()
     client = HyperliquidClient(config)
     notifier = TelegramNotifier(config.telegram_bot_token, config.telegram_chat_id)
 
+    # KONFIGURASI PRODUKSI (hasil walk-forward Fase 2): kandidat tanpa filter
+    # trend (require_trend_alignment=False) -- WAJIB sama dengan exporter
+    # dataset ML; kalau beda, distribusi fitur training tidak berlaku.
     strategy = TrendReversalStrategy(
-        require_trend_alignment=True,  # ganti ke False untuk uji perilaku EA asli (reversal murni)
+        require_trend_alignment=False,
     )
     risk_manager = RiskManager(RiskLimits())
     executor = OrderExecutor(client, notifier)
+
+    # Filter ML produksi: RF ONNX BTC 1H, threshold 0.60 (fail-closed).
+    ml_filter = None
+    if config.ml_filter_enabled:
+        try:
+            # Lazy import: butuh onnxruntime + numpy (ada di requirements.txt).
+            # ImportError pun tertangkap di bawah -> fail-closed (bot tidak jalan
+            # dengan strategi mentah yang E[r_net]-nya negatif).
+            from src.ml.inference import MLSignalFilter
+
+            model_path = config.ml_model_path or None
+            if model_path:
+                ml_filter = MLSignalFilter(model_path, threshold=config.ml_threshold)
+            else:
+                ml_filter = MLSignalFilter(threshold=config.ml_threshold)
+            log.info("Filter ML aktif (threshold %.2f)", config.ml_threshold)
+        except Exception as e:
+            # fail-closed juga di sini: tanpa model, strategi mentah rugi
+            # (E[r_net] negatif), jadi JANGAN jalan tanpa filter.
+            log.error("Gagal muat filter ML: %s -- bot TIDAK dijalankan", e)
+            raise SystemExit(1)
 
     engine = TradingEngine(
         client=client,
         strategy=strategy,
         risk_manager=risk_manager,
         executor=executor,
-        symbols=["BTC", "ETH"],
+        symbols=["BTC"],  # produksi: BTC 1H (model dilatih khusus BTC)
         notifier=notifier,
+        ml_filter=ml_filter,
     )
 
     log.info("Agent mulai jalan (%s)", "TESTNET" if config.use_testnet else "MAINNET")

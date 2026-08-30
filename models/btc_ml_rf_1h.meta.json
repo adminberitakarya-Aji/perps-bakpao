@@ -1,0 +1,96 @@
+{
+  "model": "RandomForestClassifier",
+  "framework": {
+    "sklearn": "1.9.0",
+    "skl2onnx": "1.20.0",
+    "onnxruntime": "1.29.0",
+    "onnx_opset": 12
+  },
+  "input": {
+    "name": "float_input",
+    "shape": [
+      null,
+      16
+    ],
+    "dtype": "float32"
+  },
+  "output_probabilities_index": 1,
+  "class_order": [
+    0,
+    1
+  ],
+  "feature_order": [
+    "dist_to_ema_atr",
+    "adx_main",
+    "adx_pdi",
+    "adx_mdi",
+    "adx_di_diff",
+    "rsi",
+    "atr_normalized",
+    "body_atr",
+    "upper_shadow_atr",
+    "lower_shadow_atr",
+    "hour",
+    "day_of_week",
+    "signal_type",
+    "vol_ratio_20",
+    "vol_ratio_100",
+    "funding_rate"
+  ],
+  "decision_rule": {
+    "signal": "proba[:,1] >= threshold",
+    "threshold": 0.6
+  },
+  "config": {
+    "symbol": "BTC",
+    "interval": "1h",
+    "entry": "taker",
+    "sl_atr_mult": 2.0,
+    "tp_rr_ratio": 1.5,
+    "label_horizon_bars": 30,
+    "adx_strength": 15.0,
+    "rsi_oversold": 35.0,
+    "rsi_overbought": 65.0,
+    "ema_period": 50,
+    "indicator_periods": {
+      "adx": 14,
+      "rsi": 14,
+      "atr": 14
+    }
+  },
+  "training": {
+    "dataset": "data/btc_1h3y_ml_dataset.csv",
+    "rows": 18151,
+    "date_start": "2023-08-28 02:00",
+    "date_end": "2026-08-27 13:00",
+    "hyperparameters": {
+      "bootstrap": true,
+      "ccp_alpha": 0.0,
+      "class_weight": "balanced",
+      "criterion": "gini",
+      "max_depth": 6,
+      "max_features": "sqrt",
+      "max_leaf_nodes": null,
+      "max_samples": null,
+      "min_impurity_decrease": 0.0,
+      "min_samples_leaf": 5,
+      "min_samples_split": 10,
+      "min_weight_fraction_leaf": 0.0,
+      "monotonic_cst": null,
+      "n_estimators": 150,
+      "n_jobs": -1,
+      "oob_score": false,
+      "random_state": 42,
+      "verbose": 0,
+      "warm_start": false
+    }
+  },
+  "walk_forward_reference": {
+    "n_trades_wf": 835,
+    "expected_r_net": 0.075,
+    "wr_net": 0.4973,
+    "folds": 5,
+    "folds_wr_above_breakeven": 5,
+    "note": "anchored-expanding 5 fold, purge 30 bar, biaya riil (fee+slippage+funding)"
+  }
+}

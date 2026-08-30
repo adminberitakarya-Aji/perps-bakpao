@@ -41,16 +41,32 @@ def fetch_and_save(symbol: str, interval: str, days: int, use_testnet: bool = Fa
     print(f"Fetching {symbol} {interval} candles, {days} hari terakhir...")
 
     all_candles = []
+    seen_t = set()
     cursor = start_ms
-    # Hyperliquid membatasi jumlah candle per request, jadi fetch bertahap
+    # Hyperliquid membatasi jumlah candle per request (~5000) DAN retensi
+    # historisnya pendek: candleSnapshot cuma menyimpan ~5000 bar terakhir
+    # (di 15m itu ~52 hari). Window yang seluruhnya di luar retensi
+    # dikembalikan kosong. Strategi: minta [cursor, now], maju ke candle
+    # terakhir yang diterima; kalau kosong, geser window ke depan per
+    # 5000 bar sampai data mulai tersedia -- jadi selalu dapat maksimum
+    # retensi alih-alih gagal diam-diam dengan 0 candle.
     while cursor < now_ms:
-        chunk_end = min(cursor + interval_ms * 5000, now_ms)
-        chunk = client.get_candles(symbol, interval, cursor, chunk_end)
+        chunk = client.get_candles(symbol, interval, cursor, now_ms)
         if not chunk:
-            break
-        all_candles.extend(chunk)
-        cursor = chunk_end
+            cursor += interval_ms * 5000
+            continue
+        for c in chunk:
+            t = int(c["t"])
+            if t not in seen_t:
+                seen_t.add(t)
+                all_candles.append(c)
+        last_t = int(chunk[-1]["t"])
+        next_cursor = last_t + interval_ms
+        if next_cursor <= cursor:
+            break  # pengaman anti infinite-loop
+        cursor = next_cursor
         time.sleep(0.2)  # sopan ke rate limit
+
 
     os.makedirs("data", exist_ok=True)
     out_path = f"data/{symbol}_{interval}.csv"

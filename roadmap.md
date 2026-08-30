@@ -219,8 +219,7 @@ sinkron dengan `src/config.py` (5 variabel, dengan panduan setup Telegram).
 2. **Funding rate auto-fetch** ke backtest — default terukur sudah dipakai;
    otomatisasi menyusul kalau ada waktu.
 3. **Maker/limit entry** & selektivitas sinyal — riset edge, bukan infra.
-4. **Eksperimen XAU di Hyperliquid** (habitat asli strategi EA).
-5. Penelitian field NNL harian dari API Hyperliquid sebagai pengganti
+4. Penelitian field NNL harian dari API Hyperliquid sebagai pengganti
    perhitungan equity-snapshot di Fase 2.
 
 

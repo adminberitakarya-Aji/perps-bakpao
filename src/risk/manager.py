@@ -18,18 +18,18 @@ class RiskLimits:
     max_leverage: float = 3.0
     max_daily_loss_pct: float = 0.05   # kill switch otomatis di -5% harian
     min_confidence: float = 0.5        # abaikan sinyal di bawah ini
-    atr_sl_mult: float = 2.0           # SL = ATR * mult (gantikan SL_FIXED poin ala forex)
-    tp_rr_ratio: float = 1.5           # TP = jarak SL * rasio ini (gantikan TP_MONTHLY_LEVEL)
+    atr_sl_mult: float = 2.0           # SL = ATR * mult (adaptif volatilitas, bukan jarak fixed)
+    tp_rr_ratio: float = 1.5           # TP = jarak SL * rasio ini (RR fixed, konsisten dgn format label ML)
 
-    # --- Trailing stop (port dari InpUseTrailing/StartPts/DistPts/StepPts EA asli) ---
-    # Semua dalam kelipatan ATR saat entry, bukan "poin" fixed ala forex,
+    # --- Trailing stop ---
+    # Semua dalam kelipatan ATR saat entry (bukan jarak fixed),
     # supaya proporsional terhadap volatilitas tiap posisi.
     use_trailing: bool = True
     trailing_start_atr_mult: float = 1.5   # trailing aktif setelah profit >= ATR * mult ini
     trailing_distance_atr_mult: float = 1.2  # jarak SL baru dari harga saat ini
     trailing_step_atr_mult: float = 0.3    # SL cuma digeser kalau pergerakan >= step ini (hindari over-churn)
 
-    # --- Position sizing ala EA asli (InpLotMode=LOT_RISK_PERCENT) ---
+    # --- Position sizing berbasis risiko (risk percent per trade) ---
     # Notional = (equity * risk_per_trade_pct) / jarak SL (dalam % harga).
     # Sizing lama (max_position_pct * confidence) mengabaikan jarak SL,
     # akibatnya risiko per trade bervariasi liar mengikuti ATR.
@@ -54,8 +54,8 @@ class RiskManager:
         """Return ukuran posisi (notional USD). 0 berarti sinyal ditolak.
 
         sl_distance_pct = jarak stop loss terhadap entry, dalam pecahan
-        harga (mis. 0.012 = 1.2%). Kalau diberikan, sizing ala EA asli
-        (LOT_RISK_PERCENT): notional = (equity * risk%) / sl_distance_pct,
+        harga (mis. 0.012 = 1.2%). Kalau diberikan, sizing berbasis risiko:
+        notional = (equity * risk%) / sl_distance_pct,
         di-cap risk_cap_pct * equity. Kalau None, fallback ke sizing lama
         (max_position_pct * confidence) supaya pemanggil lama tidak pecah.
         """
@@ -84,7 +84,7 @@ class RiskManager:
         return position_size
 
     def compute_sl_tp(self, signal: Signal, entry_price: float, atr: float) -> tuple[float, float]:
-        """SL/TP berbasis ATR & harga langsung (bukan 'poin' ala forex/CFD).
+        """SL/TP berbasis ATR & harga langsung.
         Return (stop_loss_price, take_profit_price)."""
         sl_distance = atr * self.limits.atr_sl_mult
         tp_distance = sl_distance * self.limits.tp_rr_ratio
@@ -106,7 +106,7 @@ class RiskManager:
         current_sl: float,
         entry_atr: float,
     ):
-        """Port dari TRAILING STOP (SINGLE POSITION) di EA asli.
+        """Trailing stop untuk posisi tunggal.
         Return SL baru (float) kalau perlu digeser, atau None kalau belum
         waktunya / belum cukup pergerakan.
 
