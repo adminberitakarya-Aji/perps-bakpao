@@ -14,6 +14,8 @@ from src.utils.notifier import TelegramNotifier
 POLL_INTERVAL_SECONDS = 60 * 60   # timeframe strategi produksi (BTC 1H)
 CANDLE_CLOSE_BUFFER_SECONDS = 300  # jeda setelah close candle (data siap di API)
 
+KILL_SWITCH_CHECK_SECONDS = 60  # monitoring kill switch antar-poll (fix P2-10)
+
 log = get_logger("main")
 
 
@@ -97,8 +99,19 @@ def main():
 
         # Sleep SELARAS boundary candle (+buffer), bukan interval tetap dari
         # waktu start proses -> eksekusi live konsisten dengan asumsi backtest
-        # (entry di dekat close candle sinyal).
-        time.sleep(seconds_until_next_poll(POLL_INTERVAL_SECONDS))
+        # (entry di dekat close candle sinyal). Selama menunggu, monitor kill
+        # switch tiap menit supaya alert & blokir entry tidak telat 1 jam
+        # (fix P2-10).
+        next_poll = time.time() + seconds_until_next_poll(POLL_INTERVAL_SECONDS)
+        while True:
+            remaining = next_poll - time.time()
+            if remaining <= 0:
+                break
+            time.sleep(min(KILL_SWITCH_CHECK_SECONDS, remaining))
+            try:
+                engine.monitor_kill_switch()
+            except Exception as e:
+                log.error("Error saat monitor kill switch: %s", e)
 
 
 if __name__ == "__main__":

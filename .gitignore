@@ -5,3 +5,17 @@ __pycache__/
 logs/
 /data/
 .pytest_cache/
+
+# Python noise
+*.egg-info/
+build/
+dist/
+.DS_Store
+Thumbs.db
+
+# Artefak eksperimen besar (hasil WF & dataset) — pola berikut mencegah
+# file sejenis baru menjadi untracked noise (yang lama sudah ter-commit sengaja)
+wf_*.txt
+rv*.txt
+docs/*_dataset*.csv
+

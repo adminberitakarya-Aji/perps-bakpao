@@ -210,6 +210,22 @@ class HyperliquidClient:
         )
         return result
 
+    def modify_sl_trigger(self, symbol: str, oid: int, close_is_buy: bool, size: float, new_sl: float) -> dict:
+        """Geser trigger SL yang SUDAH terpasang via modify (fix P2-9).
+
+        modify_order mengubah order in-place: tidak ada jeda cancel->replace,
+        jadi tidak ada momen posisi telanjang tanpa SL. Harga WAJIB dibulatkan
+        _round_px dulu (bulk_modify juga tidak membulatkan otomatis).
+        """
+        new_sl = self._round_px(symbol, new_sl)
+        order_type = {"trigger": {"triggerPx": new_sl, "isMarket": True, "tpsl": "sl"}}
+        return validate_order_result(
+            self.exchange.modify_order(
+                int(oid), symbol, close_is_buy, size, new_sl, order_type, reduce_only=True
+            ),
+            f"modify SL {symbol}",
+        )
+
     def market_close_position(self, symbol: str) -> dict:
         """Tutup posisi market (reduce-only) via SDK."""
         return validate_order_result(

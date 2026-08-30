@@ -1,7 +1,9 @@
-hyperliquid-python-sdk
-eth-account
-python-dotenv
-ta
-pandas
-numpy>=2.1
-onnxruntime>=1.23
+# Version pin = versi yang terpasang & teruji di .venv (fix P2-12:
+# reproducible build; library seperti ta/pandas rawan breaking change).
+hyperliquid-python-sdk==0.24.0
+eth-account==0.13.7
+python-dotenv==1.2.3
+ta==0.11.0
+pandas==3.0.5
+numpy==2.5.2
+onnxruntime==1.29.0

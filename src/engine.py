@@ -144,7 +144,7 @@ class TradingEngine:
                     equity,
                     yesterday_pnl_pct,
                     positions,
-                    False,
+                    bool(self.daily_state.get("kill_triggered")),
                     self.client.config.use_testnet,
                 )
             except Exception as e:
@@ -217,6 +217,14 @@ class TradingEngine:
                              symbol, result.signal.value)
                     continue
 
+            # Indikator dihitung SEKALI per siklus (fix P2-15: sebelumnya
+            # _to_df/_compute_indicators dijalankan 3x -- untuk sl_distance,
+            # ATR, dan internal strategi).
+            atr = self._get_last_atr(snapshot)
+            sl_distance_pct = None
+            if atr is not None and atr > 0 and snapshot.mid_price > 0:
+                sl_distance_pct = (atr * self.risk_manager.limits.atr_sl_mult) / snapshot.mid_price
+
             # Fail-closed: sizing HANYA dari equity ASLI. Tanpa fallback angka
             # palsu -- equity fiktif (mis. 1000 saat saldo 100) menghasilkan
             # notional oversize -> risiko liquidation.
@@ -224,13 +232,11 @@ class TradingEngine:
             if equity_usd is None:
                 log.error("[%s] equity tidak tersedia -> skip entry (fail-closed)", symbol)
                 continue
-            sl_distance_pct = self._get_sl_distance_pct(snapshot)
             size_usd = self.risk_manager.check_and_size(
                 equity_usd, result.signal, result.confidence, sl_distance_pct=sl_distance_pct
             )
 
             if size_usd > 0:
-                atr = self._get_last_atr(snapshot)
                 if atr is None or atr <= 0:
                     log.warning("[%s] ATR tidak tersedia -> skip entry (butuh SL/TP valid)", symbol)
                     continue
@@ -304,6 +310,15 @@ class TradingEngine:
                 "tp": None,
             }
             self._save_state()
+            # alert: trailing mati permanen untuk posisi ini (fix P2-16) --
+            # user perlu tahu proteksi live sekarang hanya SL/TP pair di
+            # exchange (kalau ada) tanpa penguncian profit otomatis.
+            self.notifier.notify_error(
+                f"Posisi {symbol} terbuka TANPA state (entry manual/crash?) -> "
+                f"state direkonstruksi, trailing NONAKTIF untuk posisi ini "
+                f"(side={pos['side']}, szi={pos['szi']})",
+                Exception("position state missing"),
+            )
             return
 
         # --- SL guard (self-healing): posisi TIDAK boleh telanjang ---
@@ -351,20 +366,22 @@ class TradingEngine:
             if new_sl is None or abs(new_sl - state["sl"]) < 1e-9:
                 return  # belum saatnya / pergeseran belum melewati step
 
-            # cancel pair lama -> pasang pair baru (SL digeser, TP dipertahankan)
+            # modify SL in-place (P2-9): TIDAK ada cancel->replace, jadi tidak
+            # ada window tanpa SL. TP tidak berubah -> tidak disentuh.
             old_sl = state["sl"]
+            close_is_buy = state["side"] == "S"
             try:
-                self.client.cancel_all_trigger_orders(symbol)
-                close_is_buy = state["side"] == "S"
-                self.client.place_tpsl_pair(symbol, close_is_buy, abs(pos["szi"]), new_sl, state.get("tp"))
-                log.info("[%s] TRAILING: SL %s -> %s (mid=%s)", symbol, old_sl, new_sl, best_px)
+                self.client.modify_sl_trigger(
+                    symbol, sl_active["oid"], close_is_buy, abs(pos["szi"]), new_sl
+                )
+                log.info("[%s] TRAILING: SL %s -> %s (mid=%s, modify)", symbol, old_sl, new_sl, best_px)
                 state["sl"] = new_sl
                 self._save_state()
                 self.notifier.notify_trailing(symbol, old_sl, new_sl, best_px)
             except Exception as e:
-                log.error("[%s] gagal geser SL: %s -> coba pulihkan pair lama", symbol, e)
+                log.error("[%s] gagal modify SL: %s -> fallback cancel+replace pair lama", symbol, e)
                 try:
-                    close_is_buy = state["side"] == "S"
+                    self.client.cancel_all_trigger_orders(symbol)
                     self.client.place_tpsl_pair(symbol, close_is_buy, abs(pos["szi"]), state["sl"], state.get("tp"))
                     log.info("[%s] pair lama dipulihkan (SL=%s)", symbol, state["sl"])
                 except Exception as e2:
@@ -375,6 +392,17 @@ class TradingEngine:
                     except Exception as e3:
                         log.critical("[%s] tutup paksa gagal (%s) -- PERIKSA MANUAL!", symbol, e3)
                     self.notifier.notify_force_close_trailing(symbol, state.get("sl"), best_px)
+
+    def monitor_kill_switch(self):
+        """Cek PnL harian/kill switch DI LUAR siklus poll utama (fix P2-10).
+
+        Dipanggil berkala (tiap ~60 detik) dari loop utama supaya kill switch
+        terpicu & alert terkirim segera, bukan menunggu poll 1 jam berikutnya.
+        Idempotent: rollover & heartbeat tetap terikat deteksi pergantian hari
+        (persisted), jadi tidak ada notifikasi ganda. Kill switch hanya
+        MEMBLOKIR entry baru; posisi terbuka tetap dikelola SL/TP/trailing.
+        """
+        self._update_daily_pnl()
 
     def _get_last_atr(self, snapshot: MarketSnapshot) -> float | None:
         """ATR terakhir dari candle closed (untuk SL/TP entry live)."""
@@ -391,12 +419,8 @@ class TradingEngine:
         return None
 
     def _get_sl_distance_pct(self, snapshot: MarketSnapshot) -> float | None:
-        """Jarak SL entry sebagai pecahan harga (sl_mult * ATR / price).
-
-        Sama seperti risk_manager.compute_sl_tp: SL = ATR * atr_sl_mult.
-        Diambil dari strategi kalau punya indikator ATR, via helper
-        _get_last_atr pattern; kalau tidak ada, None -> fallback sizing lama.
-        """
+        """DEPRECATED: dipertahankan hanya sebagai util; jarak SL entry
+        sekarang dihitung SEKALI per siklus di run_once (fix P2-15)."""
         try:
             strategy = self.strategy
             if hasattr(strategy, "_to_df") and hasattr(strategy, "_compute_indicators"):
@@ -405,7 +429,7 @@ class TradingEngine:
                 last_atr = df["atr"].iloc[-1]
                 if last_atr == last_atr:  # NaN check
                     atr = float(last_atr)
-                    if atr > 0:
+                    if atr > 0 and snapshot.mid_price > 0:
                         return (atr * self.risk_manager.limits.atr_sl_mult) / snapshot.mid_price
         except Exception as e:
             log.warning("gagal hitung ATR untuk sizing: %s", e)

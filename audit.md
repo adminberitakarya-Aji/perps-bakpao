@@ -89,20 +89,20 @@
 
 ---
 
-## 🟡 Temuan SEDANG (P2)
+## 🟡 Temuan SEDANG (P2) — ✅ SEMUA SUDAH DIPERBAIKI
 
 | # | Temuan | Lokasi | Dampak / Catatan |
 |---|---|---|---|
-| P2-8 | README bilang "poll tiap 15 menit", kode `POLL_INTERVAL_SECONDS = 3600` (1 jam) | `README.md:~83` vs `main.py:13` | Dokumen basi — perbarui README |
-| P2-9 | Trailing memakai pola **cancel-then-replace** — ada window tanpa SL; SDK menyediakan `modify_order` yang lebih aman | `engine.py:325-327` | Lihat P1-4 (crash window membuat kondisi permanen) |
-| P2-10 | Kill switch dicek hanya 1× per jam (per `run_once`) | `engine.py:182` | Gap risk antar-poll: drawdown intrajam bisa jauh melewati −5% sebelum terdeteksi |
-| P2-11 | Heartbeat selalu kirim `kill_triggered=False` hardcoded | `engine.py:147` | Seharusnya kirim nilai `self.daily_state["kill_triggered"]` aktual |
-| P2-12 | `requirements.txt` tanpa version pin sama sekali | `requirements.txt` | Build tidak reproducible; `ta` dkk. rawan breaking change |
-| P2-13 | `.gitignore` tidak mencakup `models/`, `rv2_hl.txt` (427KB), `wf_i2_*.txt`, `docs/xauusd_ml_dataset.csv` (3.7MB) — semuanya untracked | `.gitignore` | Rawan ke-commit tidak sengaja; putuskan per file: commit atau ignore |
-| P2-14 | ~9 file modified + ~15 file untracked belum di-commit | `git status` | Kerjaan Fase 2–4 rawan hilang; commit secepatnya |
-| P2-15 | Indikator dihitung ulang 3× per siklus per simbol | `engine.py:359-392` | Inefficiency murni; hitung sekali dan bagikan hasilnya |
-| P2-16 | Rekonstruksi state posisi tanpa `entry_atr` menonaktifkan trailing permanen, tanpa alert | `engine.py:291-301` | Perilaku terdokumentasi, tapi tambahkan notifikasi ke user |
-| P2-17 | `market_data.py` membandingkan waktu candle dengan **jam lokal** — clock skew bisa menyertakan candle yang belum close (repaint) | `market_data.py:23-31` | Minor; pertimbangkan margin toleransi |
+| P2-8 ✅ | README bilang "poll tiap 15 menit", kode `POLL_INTERVAL_SECONDS = 3600` (1 jam) | `README.md:~83` vs `main.py:13` | Dokumen basi — perbarui README |
+| P2-9 ✅ | Trailing memakai pola **cancel-then-replace** — ada window tanpa SL; SDK menyediakan `modify_order` yang lebih aman | `engine.py:325-327` | Lihat P1-4 (crash window membuat kondisi permanen) |
+| P2-10 ✅ | Kill switch dicek hanya 1× per jam (per `run_once`) | `engine.py:182` | Gap risk antar-poll: drawdown intrajam bisa jauh melewati −5% sebelum terdeteksi |
+| P2-11 ✅ | Heartbeat selalu kirim `kill_triggered=False` hardcoded | `engine.py:147` | Seharusnya kirim nilai `self.daily_state["kill_triggered"]` aktual |
+| P2-12 ✅ | `requirements.txt` tanpa version pin sama sekali | `requirements.txt` | Build tidak reproducible; `ta` dkk. rawan breaking change |
+| P2-13 ✅ | `.gitignore` tidak mencakup `models/`, `rv2_hl.txt` (427KB), `wf_i2_*.txt`, `docs/xauusd_ml_dataset.csv` (3.7MB) — semuanya untracked | `.gitignore` | Rawan ke-commit tidak sengaja; putuskan per file: commit atau ignore |
+| P2-14 ✅ | ~9 file modified + ~15 file untracked belum di-commit | `git status` | Kerjaan Fase 2–4 rawan hilang; commit secepatnya |
+| P2-15 ✅ | Indikator dihitung ulang 3× per siklus per simbol | `engine.py:359-392` | Inefficiency murni; hitung sekali dan bagikan hasilnya |
+| P2-16 ✅ | Rekonstruksi state posisi tanpa `entry_atr` menonaktifkan trailing permanen, tanpa alert | `engine.py:291-301` | Perilaku terdokumentasi, tapi tambahkan notifikasi ke user |
+| P2-17 ✅ | `market_data.py` membandingkan waktu candle dengan **jam lokal** — clock skew bisa menyertakan candle yang belum close (repaint) | `market_data.py:23-31` | Minor; pertimbangkan margin toleransi |
 
 ---
 
@@ -172,9 +172,16 @@
 | 5 | **P1-6** — hapus fallback $1000; skip entry jika equity tidak tersedia | Kecil | ✅ SELESAI (fail-closed di `run_once`) |
 | 6 | **P1-4** — self-healing SL hilang (re-place → force-close → alert) | Sedang | ✅ SELESAI (SL guard di `_manage_open_positions`) |
 | 7 | **P1-7** — polling align ke boundary candle | Kecil | ✅ SELESAI (`seconds_until_next_poll` di `main.py`, buffer 5 menit) |
-| 8 | **P2-8/12/14** — perbarui README, pin dependencies, commit semua pekerjaan | Kecil | ◐ Sebagian (README poll interval sudah korekti; pin deps & hygiene repo belum) |
-| 9 | Tambah unit test untuk item 3–6 (bisa tanpa jaringan via mock) | Sedang | ✅ SELESAI (`tests/test_client_rounding.py` 13 kasus, `tests/test_p1_fixes.py` 6 kasus) |
-| 10 | Smoke test live testnet penuh (sudah direncanakan di README) | — | ⬜ Belum |
+| 8 | **P2-8/12/14** — perbarui README, pin dependencies, commit semua pekerjaan | Kecil | ✅ SELESAI (README dikorekti; deps di-pin ke versi teruji `.venv`; semua ter-commit) |
+| 9 | Tambah unit test untuk item 3–6 (bisa tanpa jaringan via mock) | Sedang | ✅ SELESAI (`tests/test_client_rounding.py` 13 kasus, `tests/test_p1_fixes.py` 6 kasus, `tests/test_p2_fixes.py` 6 kasus) |
+| 10 | **P2-9** — trailing via `modify_order` (tanpa cancel→replace) + fallback aman | Sedang | ✅ SELESAI (`client.modify_sl_trigger`, `engine` modify-first) |
+| 11 | **P2-10** — kill switch/monitoring equity antar-poll | Kecil | ✅ SELESAI (`engine.monitor_kill_switch` + loop monitoring 60s di `main.py`) |
+| 12 | **P2-11** — heartbeat baca `kill_triggered` aktual | Kecil | ✅ SELESAI |
+| 13 | **P2-13** — `.gitignore`: state runtime & artefak besar | Kecil | ✅ SELESAI |
+| 14 | **P2-15** — indikator dihitung 1× per siklus | Kecil | ✅ SELESAI (ATR + sl_distance dihitung sekali di `run_once`) |
+| 15 | **P2-16** — alert rekonstruksi state (trailing nonaktif) | Kecil | ✅ SELESAI (`notify_error` saat rekonstruksi) |
+| 16 | **P2-17** — anti-repaint margin clock-skew 5 detik | Kecil | ✅ SELESAI (`CLOCK_SKEW_GUARD_MS` di `market_data.py`; koreksi temuan: kode sudah UTC, risiko asli = jam lokal lebih cepat) |
+| 17 | Smoke test live testnet penuh (sudah direncanakan di README) | — | ⬜ Belum |
 
 ---
 
