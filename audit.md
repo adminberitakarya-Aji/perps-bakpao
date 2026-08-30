@@ -163,18 +163,18 @@
 
 ## 🗺️ Prioritas Perbaikan (urutan eksekusi yang disarankan)
 
-| Prioritas | Item | Effort |
-|---|---|---|
-| 1 | **P0-1** — tambah `onnxruntime` + `numpy` ke `requirements.txt` (atau lazy-import ML di `main.py`) | Kecil |
-| 2 | **P0-2** — default `ML_FILTER_ENABLED` → `"false"` di `config.py:45` + lengkapi `.env.example` | Kecil |
-| 3 | **P0-3** — helper rounding harga HL (`6 − szDecimals` desimal, 5 sig-fig) di `place_tpsl_pair` | Sedang |
-| 4 | **P1-5** — validasi `result["status"]` sebelum catat state posisi | Kecil |
-| 5 | **P1-6** — hapus fallback $1000; skip entry jika equity tidak tersedia | Kecil |
-| 6 | **P1-4** — self-healing SL hilang (re-place → force-close → alert) | Sedang |
-| 7 | **P1-7** — polling align ke boundary candle | Kecil |
-| 8 | **P2-8/12/14** — perbarui README, pin dependencies, commit semua pekerjaan | Kecil |
-| 9 | Tambah unit test untuk item 3–6 (bisa tanpa jaringan via mock) | Sedang |
-| 10 | Smoke test live testnet penuh (sudah direncanakan di README) | — |
+| Prioritas | Item | Effort | Status |
+|---|---|---|---|
+| 1 | **P0-1** — tambah `onnxruntime` + `numpy` ke `requirements.txt` (atau lazy-import ML di `main.py`) | Kecil | ✅ SELESAI (keduanya: deps di-install + lazy import) |
+| 2 | **P0-2** — default `ML_FILTER_ENABLED` → `"false"` di `config.py:45` + lengkapi `.env.example` | Kecil | ✅ SELESAI |
+| 3 | **P0-3** — helper rounding harga HL (`6 − szDecimals` desimal, 5 sig-fig) di `place_tpsl_pair` | Sedang | ✅ SELESAI (`round_px` di `src/client.py`, test: `tests/test_client_rounding.py`) |
+| 4 | **P1-5** — validasi `result["status"]` sebelum catat state posisi | Kecil | ✅ SELESAI (`validate_order_result` + `OrderRejectedError` di `src/client.py`) |
+| 5 | **P1-6** — hapus fallback $1000; skip entry jika equity tidak tersedia | Kecil | ✅ SELESAI (fail-closed di `run_once`) |
+| 6 | **P1-4** — self-healing SL hilang (re-place → force-close → alert) | Sedang | ✅ SELESAI (SL guard di `_manage_open_positions`) |
+| 7 | **P1-7** — polling align ke boundary candle | Kecil | ✅ SELESAI (`seconds_until_next_poll` di `main.py`, buffer 5 menit) |
+| 8 | **P2-8/12/14** — perbarui README, pin dependencies, commit semua pekerjaan | Kecil | ◐ Sebagian (README poll interval sudah korekti; pin deps & hygiene repo belum) |
+| 9 | Tambah unit test untuk item 3–6 (bisa tanpa jaringan via mock) | Sedang | ✅ SELESAI (`tests/test_client_rounding.py` 13 kasus, `tests/test_p1_fixes.py` 6 kasus) |
+| 10 | Smoke test live testnet penuh (sudah direncanakan di README) | — | ⬜ Belum |
 
 ---
 

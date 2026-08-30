@@ -11,9 +11,30 @@ from src.engine import TradingEngine
 from src.utils.logger import get_logger
 from src.utils.notifier import TelegramNotifier
 
-POLL_INTERVAL_SECONDS = 60 * 60  # 1 jam = timeframe strategi produksi (BTC 1H)
+POLL_INTERVAL_SECONDS = 60 * 60   # timeframe strategi produksi (BTC 1H)
+CANDLE_CLOSE_BUFFER_SECONDS = 300  # jeda setelah close candle (data siap di API)
 
 log = get_logger("main")
+
+
+def seconds_until_next_poll(
+    interval_seconds: int, buffer_s: int = CANDLE_CLOSE_BUFFER_SECONDS, now: float | None = None
+) -> float:
+    """Detik sampai poll berikutnya yang SELARAS boundary candle.
+
+    Sinyal berasal dari candle yang close di boundary (mis. 01:00:00 untuk
+    1H). Entry harus terjadi sesegera mungkin setelah close + buffer kecil,
+    BUKAN interval tetap dari waktu start proses (bug lama: poll bisa jatuh
+    di tengah candle -> entry telat sampai ~1 jam, mid price sudah beda dari
+    asumsi backtest). Parameter `now` untuk testability.
+    """
+    if now is None:
+        now = time.time()
+    # target terdekat: boundary candle TERAKHIR + buffer kalau masih di depan,
+    # kalau tidak boundary BERIKUTNYA + buffer (jangan sampai melompati siklus)
+    cur_target = int(now // interval_seconds) * interval_seconds + buffer_s
+    target = cur_target if now < cur_target else cur_target + interval_seconds
+    return max(target - now, 1.0)
 
 
 # Status validasi venue (docs/go_live_validation.md): BELUM lolos go-live.
@@ -74,7 +95,10 @@ def main():
             log.error("Error saat run_once: %s", e)
             notifier.notify_error("di run_once", e)
 
-        time.sleep(POLL_INTERVAL_SECONDS)
+        # Sleep SELARAS boundary candle (+buffer), bukan interval tetap dari
+        # waktu start proses -> eksekusi live konsisten dengan asumsi backtest
+        # (entry di dekat close candle sinyal).
+        time.sleep(seconds_until_next_poll(POLL_INTERVAL_SECONDS))
 
 
 if __name__ == "__main__":

@@ -80,7 +80,7 @@ koneksi sebelum menjalankan agent penuh.
 python main.py
 ```
 
-Default jalan di **testnet** dan poll tiap 15 menit. Ganti
+Default jalan di **testnet** dan poll selaras close candle 1H (+5 menit buffer). Ganti
 `HL_USE_TESTNET=false` di `.env` hanya setelah kamu yakin dengan hasil
 backtest & paper trading.
 

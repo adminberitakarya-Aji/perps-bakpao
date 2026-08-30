@@ -217,7 +217,13 @@ class TradingEngine:
                              symbol, result.signal.value)
                     continue
 
-            equity_usd = self._get_equity_usd()
+            # Fail-closed: sizing HANYA dari equity ASLI. Tanpa fallback angka
+            # palsu -- equity fiktif (mis. 1000 saat saldo 100) menghasilkan
+            # notional oversize -> risiko liquidation.
+            equity_usd = self._get_equity_or_none()
+            if equity_usd is None:
+                log.error("[%s] equity tidak tersedia -> skip entry (fail-closed)", symbol)
+                continue
             sl_distance_pct = self._get_sl_distance_pct(snapshot)
             size_usd = self.risk_manager.check_and_size(
                 equity_usd, result.signal, result.confidence, sl_distance_pct=sl_distance_pct
@@ -255,7 +261,7 @@ class TradingEngine:
                         sl=sl,
                         tp=tp,
                         confidence=result.confidence,
-                        equity=None if equity_usd == 1000.0 and self._get_equity_or_none() is None else equity_usd,
+                        equity=equity_usd,
                         reason=result.reason,
                     )
 
@@ -300,17 +306,43 @@ class TradingEngine:
             self._save_state()
             return
 
+        # --- SL guard (self-healing): posisi TIDAK boleh telanjang ---
+        # SL trigger wajib ada di exchange untuk state yang punya SL. Kalau
+        # hilang (cancel parsial saat trailing, crash di antara cancel-replace,
+        # dsb.): pasang ulang pair dari state -> kalau gagal juga, tutup paksa
+        # + alert. Jangan pernah cuma log dan membiarkan posisi tanpa SL.
+        trigger_active = self.client.get_trigger_orders(symbol)
+        sl_active = next((o for o in trigger_active if str(o.get("triggerCondition", "")).startswith("sl")), None)
+        if state.get("sl") is not None and sl_active is None:
+            log.error("[%s] SL trigger hilang di exchange -> pasang ulang dari state (SL=%s)", symbol, state["sl"])
+            try:
+                close_is_buy = state["side"] == "S"
+                self.client.place_tpsl_pair(symbol, close_is_buy, abs(pos["szi"]), state["sl"], state.get("tp"))
+                log.info("[%s] SL dipasang ulang: SL=%s TP=%s", symbol, state["sl"], state.get("tp"))
+                self.notifier.notify_error(
+                    f"SL {symbol} hilang di exchange & sudah dipasang ulang (SL={state['sl']})",
+                    Exception("SL trigger missing"),
+                )
+                return  # pair baru terpasang; trailing dilanjutkan siklus berikutnya
+            except Exception as e:
+                log.critical("[%s] gagal pasang ulang SL (%s) -> TUTUP PAKSA posisi", symbol, e)
+                try:
+                    self.client.cancel_all_trigger_orders(symbol)
+                    self.client.market_close_position(symbol)
+                except Exception as e2:
+                    log.critical("[%s] tutup paksa gagal (%s) -- PERIKSA MANUAL!", symbol, e2)
+                self.notifier.notify_force_close(
+                    symbol,
+                    f"{state.get('side', '?')} {abs(pos['szi'])} {symbol} (SL hilang, re-place gagal)",
+                    detail=str(e),
+                )
+                return
+
         # --- trailing stop (ala risk_manager.compute_trailing_sl) ---
         if self.risk_manager.limits.use_trailing and state.get("entry_atr") and state.get("sl") is not None:
             signal = Signal.BUY if state["side"] == "B" else Signal.SELL
             entry_price = state["entry_price"]
             entry_atr = state["entry_atr"]
-
-            trigger_active = self.client.get_trigger_orders(symbol)
-            sl_active = next((o for o in trigger_active if str(o.get("triggerCondition", "")).startswith("sl")), None)
-            if sl_active is None:
-                log.error("[%s] SL trigger tidak ditemukan di exchange -> PERIKSA MANUAL (posisi mungkin telanjang)", symbol)
-                return
 
             best_px = self.client.get_mid_price(symbol)
             new_sl = self.risk_manager.compute_trailing_sl(
@@ -343,18 +375,6 @@ class TradingEngine:
                     except Exception as e3:
                         log.critical("[%s] tutup paksa gagal (%s) -- PERIKSA MANUAL!", symbol, e3)
                     self.notifier.notify_force_close_trailing(symbol, state.get("sl"), best_px)
-
-    def _get_equity_usd(self) -> float:
-        """Equity untuk SIZING; fallback 1000 kalau kosong/gagal.
-
-        Tracker PnL harian memakai _get_equity_or_none() -- jangan pernah
-        hitung kill switch dari nilai fallback ini.
-        """
-        equity = self._get_equity_or_none()
-        if equity is None:
-            log.warning("equity tidak tersedia -> fallback 1000 untuk sizing")
-            return 1000.0
-        return equity
 
     def _get_last_atr(self, snapshot: MarketSnapshot) -> float | None:
         """ATR terakhir dari candle closed (untuk SL/TP entry live)."""

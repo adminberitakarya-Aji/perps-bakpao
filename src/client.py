@@ -31,6 +31,43 @@ def round_px(px: float, sz_decimals: int, is_spot: bool = False) -> float:
     return round(float(f"{px:.5g}"), max_decimals)
 
 
+class OrderRejectedError(RuntimeError):
+    """Exchange MENOLAK order (status err / per-order error).
+
+    SDK hyperliquid TIDAK me-raise exception untuk order yang ditolak -- ia
+    mengembalikan dict {'status': 'err', ...} atau status ok dengan elemen
+    'error' per order. Tanpa validasi eksplisit, order gagal terlihat sukses
+    dan engine mencatat state posisi fantasi.
+    """
+
+
+def validate_order_result(result, context: str = "order"):
+    """Validasi respons order SDK; raise OrderRejectedError kalau ditolak.
+
+    Bentuk respons:
+      {'status': 'err', 'response': '...'}                        -> ditolak
+      {'status': 'ok', 'response': {'data': {'statuses': [
+          {'resting': {...}} | {'filled': {...}} | {'error': '...'}
+      ]}}}                                                        -> cek per order
+    Return result apa adanya kalau valid.
+    """
+    if not isinstance(result, dict):
+        raise OrderRejectedError(f"{context}: respons tidak dikenal: {result!r}")
+    status = result.get("status")
+    if status == "err":
+        raise OrderRejectedError(f"{context} ditolak: {result.get('response')}")
+    if status == "ok":
+        statuses = (
+            result.get("response", {}).get("data", {}).get("statuses", [])
+        )
+        for st in statuses:
+            if isinstance(st, dict) and "error" in st:
+                raise OrderRejectedError(f"{context} ditolak: {st['error']}")
+            elif isinstance(st, str) and "error" in st.lower():
+                raise OrderRejectedError(f"{context} ditolak: {st}")
+    return result
+
+
 class ProtectionError(RuntimeError):
     """Entry terisi tapi SL/TP gagal dipasang -> posisi SUDAH ditutup paksa.
 
@@ -88,7 +125,9 @@ class HyperliquidClient:
         if reduce_only:
             return self.exchange.market_close(symbol)
 
-        result = self.exchange.market_open(symbol, is_buy, size)
+        result = validate_order_result(
+            self.exchange.market_open(symbol, is_buy, size), f"entry {symbol}"
+        )
 
         if sl is None and tp is None:
             return result
@@ -165,11 +204,17 @@ class HyperliquidClient:
                 }
             )
             grouping = "normalTpsl"
-        return self.exchange.bulk_orders(orders, grouping=grouping)
+        result = validate_order_result(
+            self.exchange.bulk_orders(orders, grouping=grouping),
+            f"SL/TP {symbol}",
+        )
+        return result
 
     def market_close_position(self, symbol: str) -> dict:
         """Tutup posisi market (reduce-only) via SDK."""
-        return self.exchange.market_close(symbol)
+        return validate_order_result(
+            self.exchange.market_close(symbol), f"market_close {symbol}"
+        )
 
     def cancel_all_orders(self, symbol: str):
         open_orders = self.info.open_orders(self.config.account_address)
